@@ -4,9 +4,9 @@ I'm building a home lab to turn my CompTIA Network+ studies into practical exper
 
 The focus is on the decisions, troubleshooting, and results: what I changed, why I changed it, what I verified, and what still needs work.
 
-**Latest documented milestone:** Collaborator SSH to the Pi now works from their own computer. Proxmox is reachable through Tailscale, including a verified phone-hotspot test. VM 100, `ubuntu-lab-01`, runs Ubuntu Server with SSH, Tailscale, and QEMU Guest Agent active. After updates and reboot, no failed services were reported. A fresh SSH-key login and `sudo` succeeded; disabling SSH password authentication remains the next task.
+**Latest documented milestone:** The collaborator has scoped Proxmox pool, storage, and network permissions; Tasks shows VM 101 created and operated through that account. I reviewed PHP packages and services on Ubuntu, the Pi, and the host, and completed a targeted PHP update on the Pi. Ubuntu VM 100 now rejects password-only SSH: a fresh key login succeeded after the service reload, and a password-only attempt was denied. VM backup and restore, VM 101 guest verification, and further permission-boundary tests are next.
 
-*Latest documented work: October 20, 2026. README updated October 21, 2026. This overview covers Phases 1–8. Earlier phase snapshots are historical; the Phase 8 section records subsequent outcomes.*
+*Latest documented work and README update: October 28, 2026. This overview covers Phases 1–9. Earlier snapshots describe the end of each phase; the Phase 9 section records the latest verified changes. This is a lab record, not a live inventory.*
 
 ## Project documentation
 
@@ -20,6 +20,7 @@ The focus is on the decisions, troubleshooting, and results: what I changed, why
 | [06 — Raspberry Pi, Tailscale, and Remote Access](docs/06-raspberry-pi-and-tailscale.md) | DHCP discovery, headless SSH, Tailscale account migration, external access, policy restrictions, user accounts, Kali updates, and reboot checks | Remote SSH verified; policy saved; Pi updated; collaborator VPN access pending |
 | [07 — MacBook Hardening and Switch Management](docs/07-macbook-hardening-and-switch-management.md) | MacBook firewall and permissions, switch browser access, hardware/VLAN inspection, DHCP reservation, port descriptions, Save, and configuration exports | MacBook baseline improved; switch management established and backed up; shared VLAN 1 retained |
 | [08 — Shared Remote Access and the First Ubuntu VM](docs/08-shared-remote-access-and-ubuntu-vm.md) | Collaborator identity troubleshooting, remote Proxmox, separate accounts, Ubuntu installation, guest updates, and SSH-key validation | Collaborator Pi SSH and remote Proxmox verified; first VM running; key login works; key-only authentication and VM backup pending |
+| [09 — VM Permissions, PHP Review, and SSH Hardening](docs/09-vm-permissions-php-review-and-ssh-hardening.md) | Scoped Proxmox pool/storage/network roles, VM 101 task review, PHP package and service checks, targeted Kali update, and Ubuntu SSH hardening | VM creation observed under collaborator account; PHP updated on Pi; Ubuntu key login works and password-only login is rejected; backups and guest/boundary checks pending |
 
 ## Lab hardware
 
@@ -49,6 +50,7 @@ flowchart TD
     SW ---|"Port 3 / Ethernet"| PVE["N100 / Proxmox / 192.168.88.2"]
     SW ---|"Port 8 / Ethernet"| PI["Raspberry Pi / Kali / DHCP"]
     PVE -->|"VM 100 / vmbr0"| VM["Ubuntu Server / ubuntu-lab-01"]
+    PVE -->|"VM 101 / vmbr0"| COLLAB["Collaborator VM / guest installation unverified"]
     MAC -.->|"Tailscale / SSH TCP 22"| PI
     MAC -.->|"Tailscale / HTTPS TCP 8006"| PVE
     MAC -.->|"Tailscale / SSH TCP 22"| VM
@@ -67,7 +69,8 @@ flowchart TD
 | Lab DHCP pool | `192.168.88.10`–`192.168.88.254` |
 | Proxmox static address | `192.168.88.2/24` |
 | Pi LAN address | DHCP; `.249` was a Phase 6 snapshot, not a current reservation |
-| Ubuntu VM LAN address | `192.168.88.249/24` observed in Phase 8; dynamic DHCP snapshot |
+| Ubuntu VM 100 LAN address | `192.168.88.249/24` observed in Phases 8–9; dynamic DHCP snapshot |
+| Collaborator VM 101 address | Not established; guest installation and remote access still to be verified |
 | Switch management address | `192.168.88.252`; static DHCP lease on MikroTik, switch remains a DHCP client |
 | Switch management URL | `https://192.168.88.252`; login verified through Chrome; certificate trust warning remains |
 | Switch VLAN / PVID | VLAN 1 (`System-VLAN`), untagged ports `1/0/1`–`1/0/10`; PVID 1 throughout |
@@ -103,6 +106,11 @@ The dotted edges represent Tailscale connections, not additional physical cables
 | Chrome could not reach the switch despite successful ping and TCP 80/443 checks | Enabled Chrome's macOS Local Network permission | HTTPS switch login became reachable; its certificate trust warning remained |
 | Switch management depended on a dynamic lease | Converted the matching DHCP lease to static on MikroTik | Address remained `192.168.88.252`, status `bound`, with the entry's `D` flag removed |
 | Port numbers alone made equipment identification inconvenient | Added descriptions for Ports 1, 3, and 8, then used Save and Export | Main connections labeled; updated switch backup downloaded |
+| Collaborator could sign into Proxmox but could not create VMs | Added a pool and scoped pool, storage, and network roles | Create VM became available; later Tasks showed VM 101 creation under that account |
+| Proxmox TCP 8006 timed out during one remote session | Access later recovered; no confirmed fix or root cause | Work resumed; the transient failure was recorded without attributing it to a specific component |
+| PHP packages were installed on Kali while Apache was inactive | Simulated and applied a seven-package update | PHP CLI reported 8.4.27; Apache remained inactive |
+| SSH treated the private-key file as a PKCS#11 provider | Corrected uppercase `-I` to lowercase `-i` | Key-based authentication succeeded |
+| Ubuntu still accepted SSH passwords despite a working key | Added a local configuration file, checked effective settings, and reloaded SSH | Fresh key login succeeded; password-only attempt was denied |
 
 ## Proxmox snapshot after the Phase 4 upgrade
 
@@ -168,7 +176,7 @@ Recorded during October 15–20, 2026. The overlay addresses below are examples,
 | Proxmox host | `100.101.10.30` | My MacBook and collaborator identity / TCP 8006 |
 | Ubuntu VM | `100.101.10.40` | My MacBook / TCP 22 |
 
-The actual collaborator login used GitHub authentication. Correcting that identity in the policy resolved their Pi connection failure. The collaborator retains a non-sudo Pi account. A separate Proxmox account was created and tested from my MacBook; the collaborator's own Proxmox login and dedicated VM permissions remain to be verified.
+The actual collaborator login used GitHub authentication. Correcting that identity in the policy resolved their Pi connection failure. The collaborator retains a non-sudo Pi account. At the end of Phase 8, a separate Proxmox account had been tested from my MacBook, while dedicated VM permissions remained open. Phase 9 records the subsequent role assignments and VM activity under that account.
 
 | Ubuntu guest setting | Recorded value |
 | --- | --- |
@@ -179,13 +187,45 @@ The actual collaborator login used GitHub authentication. Correcting that identi
 | Network | VirtIO on `vmbr0`, shared lab LAN; no VLAN tag |
 | Services after reboot | `ssh`, `tailscaled`, and `qemu-guest-agent` active |
 | Failed systemd units | None reported |
-| SSH authentication | Fresh public-key login verified; password login not yet disabled |
+| SSH authentication at end of Phase 8 | Fresh public-key login verified; password login still enabled then; disabled and tested in Phase 9 |
 | Administration | `sudo -v` verified inside the new key-authenticated session |
 | Backup / recovery | VM backup and restore test not yet completed |
 
 Ubuntu's `.249` DHCP address was observed at a different time from the Pi's earlier `.249` address. This is not evidence of a collision, and neither observation establishes a permanent Pi address. The Proxmox host remains static at `.2`.
 
-Tailscale controls overlay connections; the guest still shares the lab LAN. No additional VLAN, subnet router, public port forward, Kubernetes cluster, or collaborator VM was configured. See [Phase 8](docs/08-shared-remote-access-and-ubuntu-vm.md) for the normalized policy, commands, and verification limits.
+Tailscale controls overlay connections; the guest still shares the lab LAN. During Phase 8, no additional VLAN, subnet router, public port forward, Kubernetes cluster, or collaborator VM was configured. VM 101 was created in the following phase. See [Phase 8](docs/08-shared-remote-access-and-ubuntu-vm.md) for the normalized policy, commands, and verification limits.
+
+## Permissions and service hardening after Phase 9
+
+Recorded during October 22–28, 2026. Account and pool names below are normalized to match the public documentation.
+
+| Area | Latest recorded result |
+| --- | --- |
+| Collaborator permissions | `lab-user@pve` received roles scoped to `collaborator-lab`, shared storage, and `vmbr0`; no global Administrator role or host root account granted |
+| Actual VM work | Tasks showed VM 101 created, started, and operated under the collaborator account on October 22 |
+| VM 101 at inspection | Stopped; 1 vCPU, 2 GiB RAM, 32 GiB disk; VirtIO on `vmbr0`; Ubuntu ISO attached; no Guest Agent configured |
+| VM 101 guest state | Installation completion, guest identity, updates, and remote access were not verified |
+| Ubuntu and Proxmox PHP review | No installed PHP packages or relevant service processes identified in the reviewed output; no PHP service observed in their TCP listener lists |
+| Kali PHP update | Seven packages scheduled from `8.4.24-1` to `8.4.27-1`, no installs/removals; installation completed; CLI version 8.4.27 and inactive Apache confirmed |
+| Ubuntu SSH configuration | Local `00-lab-hardening.conf` sets password authentication, keyboard-interactive authentication, and root login to `no` |
+| SSH validation | Syntax check passed, effective settings matched, reload returned without error, fresh key login succeeded, password-only attempt was denied |
+| Scope of SSH change | VM 100 only; Pi, Proxmox host, and VM 101 were not given the same hardening change |
+| Pending updates | 530 other packages remained outside the targeted Kali plan; Ubuntu later reported nine available updates, not applied in this session |
+
+The collaborator's pool is a resource grouping for permissions, not a network boundary or per-user resource quota. The configured assignments were:
+
+| Path | Role |
+| --- | --- |
+| `/pool/collaborator-lab` | `PVEVMAdmin` and `PVEPoolUser` |
+| `/storage/local-lvm` | `PVEDatastoreUser` |
+| `/storage/local` | `PVEAuditor` |
+| `/sdn/zones/localnetwork/vmbr0` | `PVESDNUser` |
+
+All were assigned to `lab-user@pve` with Propagate. The broader network-zone assignment was removed after narrowing it to `vmbr0`. A deliberate denial test against VM 100 and a complete effective-permission audit remain open.
+
+The Tailscale grants from Phase 8 were unchanged. A new VM has no established overlay address or remote SSH path until those are configured. The PHP checks did not inspect VM 101, comprehensively cover custom installations or containers, or establish that the systems were malware-free. A separate root SSH login attempt was not made; root was prohibited in the effective configuration.
+
+See [Phase 9](docs/09-vm-permissions-php-review-and-ssh-hardening.md) for the recorded ACL paths, package plan, listener inventory, task history, SSH commands, and validation limits.
 
 ## Status and next work
 
@@ -232,10 +272,15 @@ Tailscale controls overlay connections; the guest still shares the lab LAN. No a
 - [ ] Confirm the previous owner's backup before deleting personal files.
 - [ ] Confirm off-device access to the FileVault recovery key; a recovery test has not been recorded.
 - [x] Enable remote Proxmox HTTPS through Tailscale and verify access from a phone hotspot.
-- [ ] Verify collaborator Proxmox login from their computer and assign scoped permissions for a dedicated VM.
+- [x] Assign scoped Proxmox pool, storage, and network roles; confirm Create VM and observe actual VM 101 operations under the collaborator account.
+- [ ] Validate denied access to unintended resources, including VM 100; review effective collaborator permissions.
+- [ ] Verify VM 101 guest installation, hostname, updates, Guest Agent, and intended remote access with the collaborator.
 - [x] Create VM 100, install Ubuntu Server, and verify SSH, Tailscale, and QEMU Guest Agent after updates and reboot.
-- [ ] Inspect effective SSH settings, configure key-only access, and test password rejection without losing the working session.
-- [ ] Create a VM backup and verify restoration.
+- [x] Inspect Ubuntu SSH settings, disable password/keyboard-interactive authentication and direct root login, reload, and verify key login plus password-only rejection.
+- [x] Review PHP packages, processes, and TCP listeners on Ubuntu, the Pi, and the Proxmox host.
+- [x] Apply the targeted seven-package PHP update on Kali and confirm Apache remains inactive.
+- [ ] Plan the remaining Kali and Ubuntu updates; the targeted PHP change was not a full system upgrade.
+- [ ] Create a VM 100 backup on a suitable destination and verify restoration; keep secure copies of the SSH key and important configuration.
 - [ ] Design isolation before adding intentionally vulnerable guests.
 - [x] Verify the Raspberry Pi's OS, address, Ethernet connection, and SSH access.
 - [ ] Expand into additional Linux VMs, containers, and network exercises.
@@ -244,12 +289,12 @@ Tailscale controls overlay connections; the guest still shares the lab LAN. No a
 
 The initial seller-provided Windows installation was replaced to establish a known software baseline. Its earlier connection to household Wi-Fi was not evidence of a compromise; the basic household-device checks did not constitute a forensic investigation.
 
-UPnP was found enabled during a later pre-installation check and was turned off. The latest recorded state is **Off**. No public Proxmox or SSH port-forwarding rule was configured. Phase 5 added the MikroTik forwarding rules; Phase 6 established ordinary SSH over Tailscale to the Pi and narrowed the tailnet policy. Phase 7 enabled the MacBook firewall, reduced app permissions, and organized switch management. Phase 8 added collaborator access, remote Proxmox HTTPS, and a separately enrolled Ubuntu guest with tested SSH-key authentication. These controls do not automatically isolate same-LAN devices from one another or route a computer's independent household Wi-Fi connection through the lab. No lab-subnet route was advertised through Tailscale.
+UPnP was found enabled during a later pre-installation check and was turned off. The latest recorded state is **Off**. No public Proxmox or SSH port-forwarding rule was configured. Phase 5 added the MikroTik forwarding rules; Phase 6 established ordinary SSH over Tailscale to the Pi and narrowed the tailnet policy. Phase 7 enabled the MacBook firewall, reduced app permissions, and organized switch management. Phase 8 added collaborator access, remote Proxmox HTTPS, and a separately enrolled Ubuntu guest with tested SSH-key authentication. Phase 9 added scoped VM-management permissions, a targeted PHP update on Kali, and tested key-only SSH authentication on Ubuntu VM 100. These controls do not automatically isolate same-LAN devices from one another or route a computer's independent household Wi-Fi connection through the lab. No lab-subnet route was advertised through Tailscale.
 
-Passwords, authentication URLs, household SSIDs, account email addresses, MAC addresses, and personal household-device inventories are omitted. Private LAN addresses are retained to make addressing and troubleshooting understandable. Phase 6 uses clearly marked example Tailscale IPs and a normalized collaborator username; Phase 7 retains that convention and substitutes `<SWITCH_MAC>` in the DHCP template. Phase 8 extends the same convention with example Proxmox and Ubuntu overlay addresses, normalized usernames, and a placeholder collaborator identity. Actual identifiers remain in the private working record. Recovery keys and raw router/switch configuration backups are not included. The documents distinguish completed actions, planned work, and unresolved observations.
+Passwords, authentication URLs, household SSIDs, account email addresses, MAC addresses, and personal household-device inventories are omitted. Private LAN addresses are retained to make addressing and troubleshooting understandable. Phase 6 uses clearly marked example Tailscale IPs and a normalized collaborator username; Phase 7 retains that convention and substitutes `<SWITCH_MAC>` in the DHCP template. Phase 8 extends the same convention with example Proxmox and Ubuntu overlay addresses, normalized usernames, and a placeholder collaborator identity. Phase 9 keeps those examples and normalizes the collaborator pool and Proxmox account names. Actual identifiers remain in the private working record. Recovery keys and raw router/switch configuration backups are not included. The documents distinguish completed actions, planned work, and unresolved observations.
 
 ## Skills practiced
 
-IP addressing and DHCP · Wireless client configuration · Bridge membership · Interface lists and NAT · Switch integration and port mapping · ICMP/TCP/HTTPS troubleshooting · Bootable installation media · OS installation · Linux console access · Package repositories and host updates · Storage inspection · Stateful firewall rules · Safe Mode recovery · macOS routing diagnosis · Firewall-counter validation · Headless Linux administration · SSH authentication inspection · Tailscale enrollment and access policy · External-access testing · Linux user management · tmux-assisted upgrades · Post-reboot validation · macOS firewall and privacy review · Browser local-network troubleshooting · VLAN/PVID inspection · DHCP reservations · Switch port descriptions · Configuration saving and backup · Proxmox authentication realms · VM provisioning · QEMU Guest Agent · SSH host-key verification · Public-key authentication · Technical documentation
+IP addressing and DHCP · Wireless client configuration · Bridge membership · Interface lists and NAT · Switch integration and port mapping · ICMP/TCP/HTTPS troubleshooting · Bootable installation media · OS installation · Linux console access · Package repositories and host updates · Storage inspection · Stateful firewall rules · Safe Mode recovery · macOS routing diagnosis · Firewall-counter validation · Headless Linux administration · SSH authentication inspection · Tailscale enrollment and access policy · External-access testing · Linux user management · tmux-assisted upgrades · Post-reboot validation · macOS firewall and privacy review · Browser local-network troubleshooting · VLAN/PVID inspection · DHCP reservations · Switch port descriptions · Configuration saving and backup · Proxmox authentication realms · VM provisioning · QEMU Guest Agent · SSH host-key verification · Public-key authentication · Proxmox pool and ACL scoping · Task-history review · Package/process/listener correlation · Targeted package upgrades · SSH configuration precedence · Positive and negative authentication tests · Technical documentation
 
 These are hands-on learning records. Detailed configuration values describe this lab's setup and should be interpreted in the context of each phase.
