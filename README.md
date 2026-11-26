@@ -4,9 +4,9 @@ I'm building a home lab to turn my CompTIA Network+ studies into practical exper
 
 The focus is on the decisions, troubleshooting, and results: what I changed, why I changed it, what I verified, and what still needs work.
 
-**Latest documented milestone:** My personal Authentik sign-in passed a time-based one-time password (TOTP) challenge. I reached AlmaLinux VM 101 from the MacBook over SSH and completed the first local Ansible playbook and its idempotence check. The manual VM 101 backup finished successfully, and the daily backup job was updated to include VMs 100 and 101. Remote MikroTik management and the lab DNS exercise remain open.
+**Latest documented milestone:** BIND9 on Debian container 102 now provides the lab's local DNS and internet resolution. MikroTik DHCP distributes its address and the `home.arpa` search domain, and Ubuntu VM 100 resolves the short names `proxmox`, `router`, and `dns`. All three active guests are selected in the daily backup job. The first CT 102 backup completed successfully, passed an isolated restore and local DNS test in CT 103, and was copied to the MacBook with matching SHA-256 values. Remote MikroTik SSH and WinBox access through Proxmox also work.
 
-*Latest documented work through November 13, 2026. This overview covers Phases 1–14. The earlier phase snapshots describe their original checkpoints, and Phase 14 summarizes the latest recovered work.*
+*Latest documented work through November 26, 2026. This overview covers Phases 1–15. The current-state section below takes precedence over older phase snapshots, which retain the checkpoints and limitations recorded at their original dates.*
 
 ## Project documentation
 
@@ -26,6 +26,7 @@ The focus is on the decisions, troubleshooting, and results: what I changed, why
 | [12 — Recovery Testing, Access Validation, and SSH Hardening](docs/12-recovery-access-and-hardening.md) | Archive checksums, isolated restore, daily backups, access tests, PR merge, switch HTTP/NTP, and Pi key-only SSH | Restore and scheduled backup verified; switch time correct after reboot; Pi administrator key login works with password authentication disabled |
 | 13 — Authentik on the Raspberry Pi | Authentik and PostgreSQL on Docker | Deployment recorded in the Phase 13 recap. Personal Authentik sign-in and TOTP were verified in Phase 14 |
 | [14 — AlmaLinux, Ansible, and Remote Lab Management](docs/14-almalinux-ansible-and-remote-management.md) | Personal TOTP, AlmaLinux SSH, VM 101 backup, first Ansible playbook, and remote router-management troubleshooting | SSH, TOTP, manual backup, and local automation verified. Scheduled backup including VM 101, DNS, and remote WebFig remain open |
+| [15 — DNS, Backup, and Recovery](docs/15-dns-backup-and-recovery.md) | Storage cleanup, VM memory adjustment, OpenBao unseal, remote MikroTik access, Debian LXC DNS, DHCP integration, and backup recovery | Local and internet DNS verified; daily job includes 100, 101, and 102; CT 102 backup restored in isolation and copied to the MacBook with matching SHA-256 |
 
 ## Lab hardware
 
@@ -43,7 +44,7 @@ Phase 7 confirmed the switch as **SG3210 hardware 3.20** and inspected its exist
 
 ## Network layout
 
-The MikroTik joins the household network through its 5 GHz radio, `wifi1`, in **station** mode. Its lab LAN uses `192.168.88.0/24`. The switch connects the N100 on Port 3 and the Pi on Port 8. The MacBook uses router `ether2` for wired setup; remote Pi access was also verified with that cable disconnected.
+The MikroTik joins the household network through its 5 GHz radio, `wifi1`, in **station** mode. Its lab LAN uses `192.168.88.0/24`. The recorded cabling connects the N100 on Port 3 and the Pi on Port 8. The Pi's possible relocation was discussed later, but a move was not confirmed. The MacBook uses router `ether2` for wired setup; remote Pi access was also verified with that cable disconnected. Proxmox now hosts the two VMs and the active DNS container, CT 102.
 
 ```mermaid
 flowchart TD
@@ -56,8 +57,9 @@ flowchart TD
     SW ---|"Port 8 / Ethernet"| PI["Raspberry Pi / Kali / DHCP"]
     PVE -->|"VM 100 / vmbr0"| VM["Ubuntu Server / ubuntu-lab-01"]
     PVE -->|"VM 101"| ALMA["AlmaLinux 10.2"]
+    PVE -->|"CT 102 / vmbr0"| DNS["BIND9 / dns-lab-01 / 192.168.88.237"]
     MAC -.->|"Tailscale / SSH TCP 22"| PI
-    MAC -.->|"Tailscale / HTTPS 8006 + admin SSH 22"| PVE
+    MAC -.->|"Tailscale / SSH 22 and HTTPS tunnel"| PVE
     MAC -.->|"Tailscale / SSH TCP 22"| VM
     MAC -.->|"Tailscale / SSH TCP 22"| ALMA
 ```
@@ -72,25 +74,27 @@ flowchart TD
 | Setting | Latest documented value |
 | --- | --- |
 | MikroTik LAN address / gateway | `192.168.88.1` |
-| MikroTik management | Phase 10 retained SSH and Winbox and recorded Telnet, FTP, HTTP, both API services, and HTTPS WebFig as disabled. Phase 14 follow-up confirmed TCP 80 refusal from Proxmox |
-| Lab DHCP | MikroTik at `192.168.88.1` serves `192.168.88.0/24` from pool `192.168.88.10`–`192.168.88.254` |
+| MikroTik management | SSH and WinBox work remotely through the Proxmox SSH hop. HTTP 80 and HTTPS 443 both refused connections; WebFig remains disabled |
+| Lab DHCP | MikroTik at `192.168.88.1` serves `192.168.88.0/24` from pool `192.168.88.10`–`192.168.88.254`; advertises DNS `192.168.88.237` and search domain `home.arpa` |
 | Proxmox static address | `192.168.88.2/24` |
 | Pi LAN address | DHCP; `192.168.88.250` observed in Phase 10, not a configured reservation |
 | Ubuntu VM 100 LAN address | `192.168.88.249/24` observed in Phases 8–9; dynamic DHCP snapshot |
-| AlmaLinux VM 101 | AlmaLinux 10.2, connected in Tailscale as `lab-alma101`, with working MacBook SSH. The guest LAN address is unrecorded |
+| AlmaLinux VM 101 | AlmaLinux 10.2; working MacBook SSH; `192.168.88.238` observed through DHCP; 4 cores, 2048 MiB RAM, 60 GiB disk |
+| DNS CT 102 | Debian 12 / BIND9 at reserved DHCP address `192.168.88.237`; 1 core, 512 MiB RAM, 256 MiB swap, 4 GiB disk; unprivileged with Nesting enabled |
+| Restore-test CT 103 | Restored from the CT 102 archive; shut down, NIC disconnected, Start at boot set to No; excluded from the backup job |
 | Collaborator VM address | Working Ubuntu previously reported. The current address and guest ID remain unverified |
 | Switch management address | `192.168.88.252`; static DHCP lease on MikroTik, switch remains a DHCP client |
 | Switch management URL | `https://192.168.88.252`; HTTPS login verified; HTTP disabled and observed disabled after reboot; certificate trust warning remains |
 | Switch VLAN / PVID | VLAN 1 (`System-VLAN`), untagged ports `1/0/1`–`1/0/10`; PVID 1 throughout |
-| Proxmox configured gateway / DNS | `192.168.88.1` |
+| Proxmox configured gateway / DNS | Last inspected as `192.168.88.1`; direct `dig @192.168.88.237` tests do not establish that the static host changed its default resolver |
 | Proxmox management interface | `nic0`, Ethernet driver `r8169` |
-| Proxmox management URL | `https://192.168.88.2:8006` — login verified through Safari |
+| Proxmox management URL | Local `https://192.168.88.2:8006`; remote MacBook SSH tunnel exposes `https://127.0.0.1:8006`; Chrome login verified |
 | Router LAN bridge members | `ether2`–`ether5`, `wifi2` |
 | Router WAN interface-list members | `ether1`, `wifi1`; `ether1` unused during setup |
 
 Phase 5 added an IPv4 forward drop to the household subnet, a drop for new forwarded WAN connections, and an IPv6 forward drop before FastTrack6. The household-gateway client test matched **3 packets / 252 bytes**; saving the rules was confirmed. Deliberate inbound-WAN and routed-IPv6 tests remain pending. Existing general internet egress was retained; this is not an update-repository allowlist. Phase 10 verified the recorded rules and LAN/WAN memberships after the router updates, but did not repeat the household-counter or deliberate WAN/IPv6 traffic tests. The bridge and internal single-LAN design remain unchanged.
 
-The dotted edges represent Tailscale connections, not additional physical cables. Each endpoint runs its own Tailscale client. Remote SSH was tested from a phone hotspot and from household Wi-Fi. The documented overlay paths use individual endpoints. Tailscale policy controls the overlay path; it does not isolate devices sharing the lab LAN.
+The dotted edges represent the documented Tailscale connections, not additional physical cables. The connected MacBook, Pi, VMs, and Proxmox use individual overlay endpoints. CT 102 has no documented Tailscale client; remote router access uses Proxmox as the SSH hop. Remote SSH was tested from a phone hotspot and from household Wi-Fi. Tailscale policy controls the overlay path; it does not isolate devices sharing the lab LAN.
 
 ## Troubleshooting highlights
 
@@ -125,6 +129,43 @@ The dotted edges represent Tailscale connections, not additional physical cables
 | Router exposed unused FTP, HTTP, and API listeners to the lab | Disabled the corresponding RouterOS services | TCP 21, 80, 8728, and 8729 reported closed, including after both reboots |
 | Initial router SFTP transfer failed through the Pi | Retried with the cipher seen in a successful SSH session | Encrypted backup downloaded; original failure's cause remained unproven |
 | RouterOS updated while boot firmware still showed the old version | Applied the separate RouterBOOT update and rebooted again | Active RouterOS and RouterBOOT versions both verified as 7.23.8 |
+| Local BIND query returned SERVFAIL while a direct public resolver worked | Checked the service log and selected IPv4 transport with `OPTIONS="-u bind -4"`, then restarted named | Local recursion returned NOERROR; the exact original cause was not isolated beyond this successful change |
+| `dig 192.168.88.237 proxmox.home.arpa` used the host's default resolver | Added `@` before the DNS server address | Explicit queries reached CT 102 and returned the authoritative `192.168.88.2` record |
+| Router SSH showed packet/MAC errors and later authentication failures | Used explicit cipher/MAC settings and the MacBook client through `ProxyJump proxmox` | Remote `admin` login and the saved alias succeeded; the nested-client authentication cause remains unknown |
+| Restore from CT 102's own Backup view targeted an overwrite | Closed the dialog and opened Restore from `local` storage's Backups list | Restored as new CT 103, isolated before boot; active CT 102 was preserved |
+
+
+## Current operating state after Phase 15
+
+Recorded through November 26, 2026. These results supersede the earlier pending DNS and remote-router tasks. Later sections preserve the historical checkpoints for comparison.
+
+| Area | Current result |
+| --- | --- |
+| Host resources | Both VMs retained. Removing unused AlmaLinux ISOs and clearing the Proxmox APT cache freed approximately 3.79 GiB on `local`. VM 101 RAM was reduced from 4096 to 2048 MiB after an orderly shutdown |
+| OpenBao | The VM 101 service uses file storage and a Shamir seal with 5 shares and threshold 3. It became sealed after the restart and was unsealed again using 3 distinct shares; no secrets are included in this repository |
+| Router access | `ssh mikrotik` works through `ProxyJump proxmox`, with `aes256-ctr` and `hmac-sha2-256`. WinBox works through a loopback-only SSH forward to router TCP 8291. The earlier nested-SSH authentication failures have no proven root cause |
+| DNS service | BIND9 runs in unprivileged Debian CT 102. Queries are restricted to localhost and `192.168.88.0/24`; zone transfers are denied; DNSSEC validation remains automatic; IPv4 transport is selected with `-4` |
+| Local names | `dns.home.arpa` → `192.168.88.237`; `proxmox.home.arpa` → `192.168.88.2`; `router.home.arpa` → `192.168.88.1`. Zone serial `2026112501` |
+| DHCP integration | The router reserves CT 102's address and distributes DNS `.237` plus `home.arpa`. VM 100 received both and successfully resolved the short names and `example.com` |
+| DNS checks | Local authoritative queries succeeded. Proxmox reached CT 102 over UDP and TCP; internet resolution succeeded. Returning AAAA records does not prove IPv6 connectivity |
+| Daily backup | Enabled at 02:00 on the Proxmox host, `local`, Snapshot, ZSTD, `keep-last=3`, selected IDs `100,101,102`. CT 103 is not selected |
+| Backup run | Manual job on November 26, 13:19:13–13:20:18, finished `OK`. CT 102 archive is `vzdump-lxc-102-2026_11_26-13_20_10.tar.zst`, shown as 203.18 MB / 193.77 MiB |
+| Restore test | Restored to unused CT 103 on `local-lvm` with Unique enabled and Start after restore disabled. Its NIC was disconnected before the first boot. Console login, `named-checkconf -z`, and the local authoritative query for `proxmox.home.arpa` all succeeded |
+| Test-guest end state | CT 103 shut down successfully, remains disconnected, and has Start at boot set to No. CT 102 remains the active DNS server |
+| Off-host copy | The November 26 CT 102 archive was copied manually to MacBook `~/Downloads/`. Server and MacBook SHA-256 values match. Moving it to a different MacBook folder was suggested but not confirmed |
+| Startup setting | CT 102 was configured for Start at boot. A complete Proxmox host reboot and subsequent DNS validation have not been performed |
+
+The verified CT 102 archive checksum is:
+
+```text
+fc590ba755f98bd67b8027a96c0decd7fe689e0772e3521f271f8bbc5d85705e
+```
+
+The restore test validates the recorded container archive, boot, BIND configuration, and local zone response. Internet resolution was tested on the active CT 102; the restored guest stayed isolated. The MacBook copy is a point-in-time manual copy, with no automatic transfer of future nightly archives. An isolated VM 101 restore and a current off-host copy for VM 101 remain open.
+
+The next backup check is to inspect the first scheduled run that includes CT 102, then decide how to maintain current off-host copies. No router firmware update, Pi move, Tailscale subnet route, or new backup-transfer automation was completed in this phase.
+
+See [Phase 15](docs/15-dns-backup-and-recovery.md) for the BIND files, commands, troubleshooting, and recovery evidence. The updated Markdown documents are prepared for GitHub; their publication is separate from the lab changes.
 
 ## Proxmox snapshot after the Phase 4 upgrade
 
@@ -337,7 +378,7 @@ See [Phase 12](docs/12-recovery-access-and-hardening.md) for the workflow, comma
 
 ## AlmaLinux, Ansible, and remote lab management after Phase 14
 
-Recorded after the Phase 13 Authentik recap through November 13, 2026. The source for this update is the recovered end of the lab conversation and its recorded outputs.
+Historical checkpoint through November 13, 2026, after the Phase 13 Authentik recap. The table retains the status at that cutoff; Phase 15 above records the subsequent DNS deployment, remote-router access, and backup verification.
 
 | Area | Latest result |
 | --- | --- |
@@ -433,7 +474,14 @@ The checklist includes historical milestones and open work across the documented
 - [x] Compare archive checksums and restore isolated VM 900; verify boot/console login and remove the test guest.
 - [x] Configure daily 02:00 backups and `keep-last=3`. Verify scheduled completion for VM 100 in Phase 12.
 - [x] Add VM 101 to the existing backup job and verify a separate manual VM 101 backup.
-- [ ] Verify a scheduled run with both VMs selected and perform an isolated VM 101 restore test.
+- [x] Observe later scheduled backups for VMs 100 and 101 in the November 26 task history and archive list.
+- [ ] Perform an isolated VM 101 restore test and retain a current off-host VM 101 archive.
+- [x] Add CT 102 to the 02:00 job alongside VMs 100 and 101; complete a manual run successfully.
+- [ ] Inspect the first scheduled run after adding CT 102.
+- [x] Restore the CT 102 backup into isolated CT 103 and verify boot, configuration, and an authoritative local DNS response.
+- [x] Shut down CT 103, retain its disconnected NIC, and disable Start at boot.
+- [x] Copy the CT 102 archive to the MacBook and verify matching SHA-256 values.
+- [ ] Verify CT 102 startup and DNS availability after a planned Proxmox host reboot.
 - [ ] Automate off-host copies of new backups and independently protect keys/configuration; the MacBook archive copy was manual.
 - [ ] Design isolation before adding intentionally vulnerable guests.
 - [x] Verify the Raspberry Pi's OS, address, Ethernet connection, and SSH access.
@@ -448,21 +496,24 @@ The checklist includes historical milestones and open work across the documented
 - [x] Record the Authentik and PostgreSQL deployment on the Pi and verify personal sign-in with TOTP.
 - [ ] Verify Authentik administrator permissions, backup coverage, and recovery.
 - [x] Verify SSH to AlmaLinux VM 101 and run its first Ansible playbook twice to check idempotence.
-- [ ] Select a guest and define the scope for the lab DNS exercise.
-- [ ] Verify a remote MikroTik management path through Tailscale.
-- [ ] Verify GLPI deployment and evaluate OpenBao.
+- [x] Deploy BIND9 in Debian CT 102 and restrict lab recursion and zone transfers.
+- [x] Reserve the DNS address, create `home.arpa`, and distribute the resolver and search domain through MikroTik DHCP.
+- [x] Verify short local names and internet resolution from VM 100, plus UDP and TCP queries from Proxmox.
+- [x] Verify remote MikroTik SSH and WinBox through the Proxmox hop; save and test the `mikrotik` SSH alias.
+- [x] Inspect OpenBao in VM 101 and unseal it after restart using the existing shares.
+- [ ] Verify GLPI deployment and decide OpenBao usage and recovery ownership.
 - [ ] Expand into additional Linux VMs, containers, and network exercises.
 
 ## Security and documentation approach
 
 The initial seller-provided Windows installation was replaced to establish a known software baseline. Its earlier connection to household Wi-Fi was not evidence of a compromise; the basic household-device checks did not constitute a forensic investigation.
 
-UPnP was found enabled during a later pre-installation check and was turned off. The latest recorded state is **Off**. No public Proxmox or SSH port-forwarding rule was configured. Phase 5 added the MikroTik forwarding rules; Phase 6 established ordinary SSH over Tailscale to the Pi and narrowed the tailnet policy. Phase 7 enabled the MacBook firewall, reduced app permissions, and organized switch management. Phase 8 added collaborator access, remote Proxmox HTTPS, and a separately enrolled Ubuntu guest with tested SSH-key authentication. Phase 9 added scoped VM-management permissions, a targeted PHP update on Kali, and tested key-only SSH authentication on Ubuntu VM 100. Phase 10 disabled unused management services, downloaded an encrypted router backup, updated RouterOS and RouterBOOT, and checked the recorded firewall configuration afterward. It also granted the collaborator full sudo on the Pi; that account should no longer be described as restricted to ordinary-user operations. Phase 11 verified NTP across the recorded systems, established administrator SSH to Proxmox, and added off-device router and VM backups. Phase 12 verified the VM archive checksum and isolated restore, observed daily backups, tested selected overlay paths, merged PR #1, disabled switch HTTP, repaired switch NTP and checked reboot persistence, and disabled Pi password authentication with a fresh key login. Router and switch configuration restoration remain untested. These controls do not automatically isolate same-LAN devices from one another or route a computer's independent household Wi-Fi connection through the lab. As of the Phase 14 record, a Tailscale route to the lab subnet remains unverified.
+UPnP was found enabled during a later pre-installation check and was turned off. The latest recorded state is **Off**. No public Proxmox or SSH port-forwarding rule was configured. Phase 5 added the MikroTik forwarding rules; Phase 6 established ordinary SSH over Tailscale to the Pi and narrowed the tailnet policy. Phase 7 enabled the MacBook firewall, reduced app permissions, and organized switch management. Phase 8 added collaborator access, remote Proxmox HTTPS, and a separately enrolled Ubuntu guest with tested SSH-key authentication. Phase 9 added scoped VM-management permissions, a targeted PHP update on Kali, and tested key-only SSH authentication on Ubuntu VM 100. Phase 10 disabled unused management services, downloaded an encrypted router backup, updated RouterOS and RouterBOOT, and checked the recorded firewall configuration afterward. It also granted the collaborator full sudo on the Pi; that account should no longer be described as restricted to ordinary-user operations. Phase 11 verified NTP across the recorded systems, established administrator SSH to Proxmox, and added off-device router and VM backups. Phase 12 verified the VM archive checksum and isolated restore, observed daily backups, tested selected overlay paths, merged PR #1, disabled switch HTTP, repaired switch NTP and checked reboot persistence, and disabled Pi password authentication with a fresh key login. Router and switch configuration restoration remain untested. These controls do not automatically isolate same-LAN devices from one another or route a computer's independent household Wi-Fi connection through the lab. Phase 15 added the DNS container, limited its queries and recursion to the local lab, integrated DHCP, and verified its isolated restore and off-host archive. Remote MikroTik management now uses the Proxmox SSH hop. A Tailscale route to the lab subnet remains unconfigured in the documented work.
 
-Passwords, authentication URLs, household SSIDs, account email addresses, MAC addresses, and personal household-device inventories are omitted. Private LAN addresses are retained to make addressing and troubleshooting understandable. Phase 6 uses clearly marked example Tailscale IPs and a normalized collaborator username; Phase 7 retains that convention and substitutes `<SWITCH_MAC>` in the DHCP template. Phase 8 extends the same convention with example Proxmox and Ubuntu overlay addresses, normalized usernames, and a placeholder collaborator identity. Phase 9 keeps those examples and normalizes the collaborator pool and Proxmox account names. Phase 10 follows the same convention, including the Pi sudo-account example, and omits router serial numbers, actual host-key fingerprints, and personal download paths. Phase 11 retains these substitutions for SSH and SCP examples and publishes backup filenames only, not archive contents. Phase 12 keeps these substitutions and records the backup checksum, without actual key fingerprints or raw policy/backup contents. Phase 14 continues to omit real overlay addresses, account identifiers, and authentication secrets. Actual identifiers remain in the private working record. Recovery keys and raw router/switch configuration backups are not included. The documents distinguish completed actions, planned work, and unresolved observations.
+Passwords, authentication URLs, household SSIDs, account email addresses, MAC addresses, and personal household-device inventories are omitted. Private LAN addresses are retained to make addressing and troubleshooting understandable. Phase 6 uses clearly marked example Tailscale IPs and a normalized collaborator username; Phase 7 retains that convention and substitutes `<SWITCH_MAC>` in the DHCP template. Phase 8 extends the same convention with example Proxmox and Ubuntu overlay addresses, normalized usernames, and a placeholder collaborator identity. Phase 9 keeps those examples and normalizes the collaborator pool and Proxmox account names. Phase 10 follows the same convention, including the Pi sudo-account example, and omits router serial numbers, actual host-key fingerprints, and personal download paths. Phase 11 retains these substitutions for SSH and SCP examples and publishes backup filenames only, not archive contents. Phase 12 keeps these substitutions and records the backup checksum, without actual key fingerprints or raw policy/backup contents. Phases 14–15 continue to omit real overlay addresses, account identifiers, and authentication secrets. Phase 15 records the CT archive checksum and uses `~/Downloads/` instead of a personal MacBook account path. Actual identifiers remain in the private working record. Recovery keys and raw router/switch configuration backups are not included. The documents distinguish completed actions, planned work, and unresolved observations.
 
 ## Skills practiced
 
-IP addressing and DHCP · Wireless client configuration · Bridge membership · Interface lists and NAT · Switch integration and port mapping · ICMP/TCP/HTTPS troubleshooting · Bootable installation media · OS installation · Linux console access · Package repositories and host updates · Storage inspection · Stateful firewall rules · Safe Mode recovery · macOS routing diagnosis · Firewall-counter validation · Headless Linux administration · SSH authentication inspection · Tailscale enrollment and access policy · External-access testing · Linux user management · tmux-assisted upgrades · Post-reboot validation · macOS firewall and privacy review · Browser local-network troubleshooting · VLAN/PVID inspection · DHCP reservations · Switch port descriptions · Configuration saving and backup · Proxmox authentication realms · VM provisioning · QEMU Guest Agent · SSH host-key verification · Public-key authentication · Proxmox pool and ACL scoping · Task-history review · Package/process/listener correlation · Targeted package upgrades · SSH configuration precedence · Positive and negative authentication tests · Effective-permission inspection · ISO-upload role design · Packet capture and port-scan interpretation · NTP and time-zone diagnosis · SSH local forwarding and jump hosts · Management-service hardening · Encrypted off-device router backup · RouterOS and RouterBOOT maintenance · chrony diagnostics · PR-branch review · Proxmox VM backup · SCP archive transfer · Recovery planning · SHA256 comparison · Isolated VM restoration · Backup scheduling and retention · PR merging · Post-reboot switch NTP repair · Pi SSH hardening · Authentik sign-in with TOTP · AlmaLinux remote administration · Ansible playbooks and idempotence · Technical documentation
+IP addressing and DHCP · Wireless client configuration · Bridge membership · Interface lists and NAT · Switch integration and port mapping · ICMP/TCP/HTTPS troubleshooting · Bootable installation media · OS installation · Linux console access · Package repositories and host updates · Storage inspection · Stateful firewall rules · Safe Mode recovery · macOS routing diagnosis · Firewall-counter validation · Headless Linux administration · SSH authentication inspection · Tailscale enrollment and access policy · External-access testing · Linux user management · tmux-assisted upgrades · Post-reboot validation · macOS firewall and privacy review · Browser local-network troubleshooting · VLAN/PVID inspection · DHCP reservations · Switch port descriptions · Configuration saving and backup · Proxmox authentication realms · VM provisioning · QEMU Guest Agent · SSH host-key verification · Public-key authentication · Proxmox pool and ACL scoping · Task-history review · Package/process/listener correlation · Targeted package upgrades · SSH configuration precedence · Positive and negative authentication tests · Effective-permission inspection · ISO-upload role design · Packet capture and port-scan interpretation · NTP and time-zone diagnosis · SSH local forwarding and jump hosts · Management-service hardening · Encrypted off-device router backup · RouterOS and RouterBOOT maintenance · chrony diagnostics · PR-branch review · Proxmox VM backup · SCP archive transfer · Recovery planning · SHA256 comparison · Isolated VM restoration · Backup scheduling and retention · PR merging · Post-reboot switch NTP repair · Pi SSH hardening · Authentik sign-in with TOTP · AlmaLinux remote administration · Ansible playbooks and idempotence · LXC provisioning and restore isolation · BIND9 configuration · Local DNS zones and search domains · Recursive DNS access controls · DNSSEC response interpretation · UDP/TCP DNS validation · OpenBao seal lifecycle · Technical documentation
 
 These are hands-on learning records. Detailed configuration values describe this lab's setup and should be interpreted in the context of each phase.
